@@ -11,6 +11,7 @@ from torch.optim import Adam
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import numpy as np
+#from torchsummary import summary
 
 
 batch_size = 10
@@ -48,79 +49,143 @@ class MyData(Dataset):
 
 # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+class BN_Conv2d(nn.Module):
+    """
+    BN_CONV, default activation is ReLU
+    """
+
+    def __init__(self, in_channels: object, out_channels: object, kernel_size: object, stride: object, padding: object,
+                 dilation=1, groups=1, bias=False, activation=True) -> object:
+        super(BN_Conv2d, self).__init__()
+        layers = [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride,
+                            padding=padding, dilation=dilation, groups=groups, bias=bias),
+                  nn.BatchNorm2d(out_channels)]
+        if activation:
+            layers.append(nn.ReLU(inplace=True))
+        self.seq = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.seq(x)
+
+class BasicBlock(nn.Module):
+    """
+    basic building block for ResNet-18, ResNet-34
+    """
+    message = "basic"
+
+    def __init__(self, in_channels, out_channels, strides, is_se=False):
+        super(BasicBlock, self).__init__()
+        self.is_se = is_se
+        self.conv1 = BN_Conv2d(in_channels, out_channels, 3, stride=strides, padding=1, bias=False)  # same padding
+        self.conv2 = BN_Conv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=False, activation=False)
+        if self.is_se:
+            self.se = SE(out_channels, 16)
+
+        # fit input with residual output
+        self.short_cut = nn.Sequential()
+        if strides != 1:
+            self.short_cut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, 1, stride=strides, padding=0, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.conv2(out)
+        if self.is_se:
+            coefficient = self.se(out)
+            out = out * coefficient
+        out = out + self.short_cut(x)
+        return F.relu(out)
+
+class BottleNeck(nn.Module):
+    """
+    BottleNeck block for RestNet-50, ResNet-101, ResNet-152
+    """
+    message = "bottleneck"
+
+    def __init__(self, in_channels, out_channels, strides, is_se=False):
+        super(BottleNeck, self).__init__()
+        self.is_se = is_se
+        self.conv1 = BN_Conv2d(in_channels, out_channels, 1, stride=1, padding=0, bias=False)  # same padding
+        self.conv2 = BN_Conv2d(out_channels, out_channels, 3, stride=strides, padding=1, bias=False)
+        self.conv3 = BN_Conv2d(out_channels, out_channels * 4, 1, stride=1, padding=0, bias=False, activation=False)
+        if self.is_se:
+            self.se = SE(out_channels * 4, 16)
+
+        # fit input with residual output
+        self.shortcut = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels * 4, 1, stride=strides, padding=0, bias=False),
+            nn.BatchNorm2d(out_channels * 4)
+        )
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out = self.conv3(out)
+        if self.is_se:
+            coefficient = self.se(out)
+            out = out * coefficient
+        out = out + self.shortcut(x)
+        return F.relu(out)
+
 class Net(nn.Module):
 ###########################################################################
 # TODO: Complete the neural network. You should at least define __init__  #
 # and forward functions                                                   #
 ###########################################################################
 # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-    def __init__(self, use_checkpoint=False):
+    def __init__(self, block: object, groups: object, num_classes=1000) -> object:
         super(Net, self).__init__()
-        self.use_checkpoint=checkpoint
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.pool = nn.MaxPool2d(2,2)
-        self.conv4 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
-        self.bn4 = nn.BatchNorm2d(128)
-        self.conv5 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1)
-        self.bn5 = nn.BatchNorm2d(128)
-        self.conv6 = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1)
-        self.bn6 = nn.BatchNorm2d(128)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv8 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
-        self.bn8 = nn.BatchNorm2d(256)
-        self.conv9 = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1)
-        self.bn9 = nn.BatchNorm2d(256)
-        self.conv10 = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1)
-        self.bn10 = nn.BatchNorm2d(256)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv12 = nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1)
-        self.bn12 = nn.BatchNorm2d(512)
-        self.conv13 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1)
-        self.bn13 = nn.BatchNorm2d(512)
-        self.conv14 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1)
-        self.bn14 = nn.BatchNorm2d(512)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv16 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1)
-        self.bn16 = nn.BatchNorm2d(512)
-        self.conv17 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1)
-        self.bn17 = nn.BatchNorm2d(512)
-        self.conv18 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1)
-        self.bn18 = nn.BatchNorm2d(512)
-        self.fc1 = nn.Linear(512*8*8, 1024)
-        self.fc2 = nn.Linear(1024, 1024)
-        self.fc3 = nn.Linear(1024, 20)
+        self.channels = 64  # out channels from the first convolutional layer
+        self.block = block
 
-    def forward(self, input):
-        output = F.relu(self.bn1(self.conv1(input)))
-        output = F.relu(self.bn2(self.conv2(output)))
-        output = self.pool(output)                        
-        output = F.relu(self.bn4(self.conv4(output)))
-        output = F.relu(self.bn5(self.conv5(output)))
-        output = F.relu(self.bn6(self.conv6(output)))
-        output = self.pool(output)
-        output = F.relu(self.bn8(self.conv8(output)))
-        output = F.relu(self.bn9(self.conv9(output)))
-        output = F.relu(self.bn10(self.conv10(output)))
-        output = self.pool(output)
-        output = F.relu(self.bn12(self.conv12(output)))
-        output = F.relu(self.bn13(self.conv13(output)))
-        output = F.relu(self.bn14(self.conv14(output)))
-        output = self.pool(output)
-        output = F.relu(self.bn16(self.conv16(output)))
-        output = F.relu(self.bn17(self.conv17(output)))
-        output = F.relu(self.bn18(self.conv18(output)))
-        output = output.view(output.shape[0], -1)
-        output = F.relu(self.fc1(output))
-        output = F.relu(self.fc2(output))
-        output = self.fc3(output)
+        self.conv1 = nn.Conv2d(1, self.channels, 128, stride=2, padding=3, bias=False)
+        self.bn = nn.BatchNorm2d(self.channels)
+        self.pool1 = nn.MaxPool2d(3, 2, 1)
+        self.conv2_x = self._make_conv_x(channels=64, blocks=groups[0], strides=1, index=2)
+        self.conv3_x = self._make_conv_x(channels=128, blocks=groups[1], strides=2, index=3)
+        self.conv4_x = self._make_conv_x(channels=256, blocks=groups[2], strides=2, index=4)
+        self.conv5_x = self._make_conv_x(channels=512, blocks=groups[3], strides=2, index=5)
+        #self.pool2 = nn.AvgPool2d(7)
+        patches = 512 if self.block.message == "basic" else 512 * 4
+        self.fc = nn.Linear(patches, num_classes)  # for 224 * 224 input size
 
-        return output
+
+    def _make_conv_x(self, channels, blocks, strides, index):
+        """
+        making convolutional group
+        :param channels: output channels of the conv-group
+        :param blocks: number of blocks in the conv-group
+        :param strides: strides
+        :return: conv-group
+        """
+        list_strides = [strides] + [1] * (blocks - 1)  # In conv_x groups, the first strides is 2, the others are ones.
+        conv_x = nn.Sequential()
+        for i in range(len(list_strides)):
+            layer_name = str("block_%d_%d" % (index, i))  # when use add_module, the name should be difference.
+            conv_x.add_module(layer_name, self.block(self.channels, channels, list_strides[i]))
+            self.channels = channels if self.block.message == "basic" else channels * 4
+        return conv_x
+
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = F.relu(self.bn(out))
+        out = self.pool1(out)
+        out = self.conv2_x(out)
+        out = self.conv3_x(out)
+        out = self.conv4_x(out)
+        out = self.conv5_x(out)
+        #out = self.pool2(out)
+        out = out.view(out.size(0), -1)
+        out = self.fc(out)
+        return out
 
 # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+def ResNet_18(num_classes=20):
+    return Net(block=BasicBlock, groups=[2, 2, 2, 2], num_classes=num_classes)
 
 def load_data():
 
@@ -153,7 +218,7 @@ Cuda = True
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 #device = torch.device("cpu")
 train_data, test_data = load_data()
-model = Net(use_checkpoint=False).cuda()
+model = ResNet_18().cuda()
 loss_fn = nn.CrossEntropyLoss().to(device)
 optimizer = Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
 
