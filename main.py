@@ -69,17 +69,14 @@ class BN_Conv2d(nn.Module):
 
 class BasicBlock(nn.Module):
     """
-    basic building block for ResNet-18, ResNet-34
+    basic building block for ResNet-18
     """
     message = "basic"
 
-    def __init__(self, in_channels, out_channels, strides, is_se=False):
+    def __init__(self, in_channels, out_channels, strides):
         super(BasicBlock, self).__init__()
-        self.is_se = is_se
         self.conv1 = BN_Conv2d(in_channels, out_channels, 3, stride=strides, padding=1, bias=False)  # same padding
         self.conv2 = BN_Conv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=False, activation=False)
-        if self.is_se:
-            self.se = SE(out_channels, 16)
 
         # fit input with residual output
         self.short_cut = nn.Sequential()
@@ -92,41 +89,7 @@ class BasicBlock(nn.Module):
     def forward(self, x):
         out = self.conv1(x)
         out = self.conv2(out)
-        if self.is_se:
-            coefficient = self.se(out)
-            out = out * coefficient
         out = out + self.short_cut(x)
-        return F.relu(out)
-
-class BottleNeck(nn.Module):
-    """
-    BottleNeck block for RestNet-50, ResNet-101, ResNet-152
-    """
-    message = "bottleneck"
-
-    def __init__(self, in_channels, out_channels, strides, is_se=False):
-        super(BottleNeck, self).__init__()
-        self.is_se = is_se
-        self.conv1 = BN_Conv2d(in_channels, out_channels, 1, stride=1, padding=0, bias=False)  # same padding
-        self.conv2 = BN_Conv2d(out_channels, out_channels, 3, stride=strides, padding=1, bias=False)
-        self.conv3 = BN_Conv2d(out_channels, out_channels * 4, 1, stride=1, padding=0, bias=False, activation=False)
-        if self.is_se:
-            self.se = SE(out_channels * 4, 16)
-
-        # fit input with residual output
-        self.shortcut = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels * 4, 1, stride=strides, padding=0, bias=False),
-            nn.BatchNorm2d(out_channels * 4)
-        )
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.conv2(out)
-        out = self.conv3(out)
-        if self.is_se:
-            coefficient = self.se(out)
-            out = out * coefficient
-        out = out + self.shortcut(x)
         return F.relu(out)
 
 class Net(nn.Module):
