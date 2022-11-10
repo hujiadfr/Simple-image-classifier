@@ -1,4 +1,7 @@
-from secrets import randbits
+# %% [markdown]
+# # ECE449 Small project
+
+# %%
 import torch
 import torchvision
 from PIL import Image
@@ -11,11 +14,15 @@ from torch.optim import Adam
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import numpy as np
-#from torchsummary import summary
+import random
 
+# %% [markdown]
+# ## Custimized Dataset
 
-batch_size = 10
+# %% [markdown]
+# First we define two functions: __init_process__ and __Myloader__, init_process zip path and label to the data list. And Myloader use Image.open from pillow to read our image
 
+# %%
 def init_process(path, lens, label):
     data = []
     name = label-1
@@ -25,30 +32,65 @@ def init_process(path, lens, label):
 def Myloader(path):
     return Image.open(path)
 
+# %%
 class MyData(Dataset):
-###########################################################################
-# TODO: Complete the custom dataset. You should at least define __init__ ,#
-# __getitem__ and __len__  functions                                      #
-###########################################################################
-# *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+
     def __init__(self, data, transform, loader):
         self.data = data
         self.transfrom = transform
         self.loader = loader
-        
+
     def __getitem__(self, item):
         img, label = self.data[item]
         img = self.loader(img)
         img = self.transfrom(img)
         return img, label
-    
+
     def __len__(self):
         return len(self.data)
-    
 
+# %% [markdown]
+# For dataset, we define basic __init__, __getitem__ and __len__. In the __init__ of class, we have three input: **data** is a list contain path and label to the image, tranform is a transform function which normalize out image and put it to Tensor. loader is function to read image from our path. So for our __getitem__ function, we first obtain the img path and label from data list, and put image to the tensor.
 
-# *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+# %%
+def load_data():
+    transform = transforms.Compose([
+        transforms.CenterCrop(128),
+        transforms.Resize((128, 128)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.1307), std=(0.3081))
+    ])
+    train_data = []
+    test_data = []
+    for i in range(1,21):
+        if i<10:
+            path = 'coil-20-proc/0%d'%(i)+'/obj%d'%(i)+'__%d.png'
+            train_data += init_process(path, [0, 60], i)
+            test_data += init_process(path, [60, 72], i)
+        else:
+            path = 'coil-20-proc/%d'%(i)+'/obj%d'%(i)+'__%d.png'
+            train_data += init_process(path, [0, 60], i)
+            test_data += init_process(path, [60, 72], i)
 
+    train = MyData(train_data, transform=transform, loader=Myloader)
+    test = MyData(test_data, transform=transform, loader=Myloader)
+    train_data = DataLoader(dataset=train, batch_size=batch_size, shuffle=True, num_workers=0)
+    test_data = DataLoader(dataset=test, batch_size=batch_size, shuffle=True, num_workers=0)
+    return train_data, test_data
+
+# %% [markdown]
+# Then we define load_ddata function, split our dataset [0-60] as train dataset and [60, 72] as test dataset, and use torch Dataloader with batch_size = 10
+
+# %% [markdown]
+# ## Network
+# We use Resnet to build our classifier. This is a basic block with 64 channel in our Net
+# 
+# ![avatar](basicblock.png)
+
+# %% [markdown]
+# First of all, we define a __BN_Conv2d__ which means combine Convolution with Normalization and RELU
+
+# %%
 class BN_Conv2d(nn.Module):
     """
     BN_CONV, default activation is ReLU
@@ -67,6 +109,10 @@ class BN_Conv2d(nn.Module):
     def forward(self, x):
         return self.seq(x)
 
+# %% [markdown]
+# Then define our Basic Block
+
+# %%
 class BasicBlock(nn.Module):
     """
     basic building block for ResNet-18
@@ -92,12 +138,8 @@ class BasicBlock(nn.Module):
         out = out + self.short_cut(x)
         return F.relu(out)
 
+# %%
 class Net(nn.Module):
-###########################################################################
-# TODO: Complete the neural network. You should at least define __init__  #
-# and forward functions                                                   #
-###########################################################################
-# *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     def __init__(self, block: object, groups: object, num_classes=1000) -> object:
         super(Net, self).__init__()
         self.channels = 64  # out channels from the first convolutional layer
@@ -110,7 +152,7 @@ class Net(nn.Module):
         self.conv3_x = self._make_conv_x(channels=128, blocks=groups[1], strides=2, index=3)
         self.conv4_x = self._make_conv_x(channels=256, blocks=groups[2], strides=2, index=4)
         self.conv5_x = self._make_conv_x(channels=512, blocks=groups[3], strides=2, index=5)
-        #self.pool2 = nn.AvgPool2d(7)
+        self.pool2 = nn.AvgPool2d(8)
         patches = 512 if self.block.message == "basic" else 512 * 4
         self.fc = nn.Linear(patches, num_classes)  # for 224 * 224 input size
 
@@ -145,47 +187,15 @@ class Net(nn.Module):
         out = self.fc(out)
         return out
 
-# *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
+# %%
 def ResNet_18(num_classes=20):
     return Net(block=BasicBlock, groups=[2, 2, 2, 2], num_classes=num_classes)
 
-def load_data():
 
-    
-    transform = transforms.Compose([
-        transforms.CenterCrop(128),
-        transforms.Resize((128, 128)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.1307), std=(0.3081))
-    ])
-    train_data = []
-    test_data = []
-    for i in range(1,21):
-        if i<10:
-            path = 'coil-20-proc/0%d'%(i)+'/obj%d'%(i)+'__%d.png'
-            train_data += init_process(path, [0, 60], i)
-            test_data += init_process(path, [60, 72], i)
-        else:
-            path = 'coil-20-proc/%d'%(i)+'/obj%d'%(i)+'__%d.png'
-            train_data += init_process(path, [0, 60], i)
-            test_data += init_process(path, [60, 72], i)
+# %% [markdown]
+# Start our train
 
-    train = MyData(train_data, transform=transform, loader=Myloader)
-    test = MyData(test_data, transform=transform, loader=Myloader)
-    train_data = DataLoader(dataset=train, batch_size=batch_size, shuffle=True, num_workers=0)
-    test_data = DataLoader(dataset=test, batch_size=batch_size, shuffle=True, num_workers=0)
-    return train_data, test_data
-
-Cuda = True
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-#device = torch.device("cpu")
-train_data, test_data = load_data()
-model = ResNet_18().cuda()
-loss_fn = nn.CrossEntropyLoss().to(device)
-optimizer = Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
-
-# Function to save the model
+# %%
 def saveModel():
     path = "./Model.pth"
     torch.save(model.state_dict(), path)
@@ -208,15 +218,15 @@ def testAccuracy():
 
 def train(num_epochs):
 
-    best_accuracy = 0.0
     best_loss = 100.0
     count = 0
+    loss_list = []
     for epoch in range(num_epochs):
         running_loss = 0.0
         running_acc = 0.0
-        
+
         for i, (images, labels) in enumerate(train_data, 0):
-            
+
             #get the inputs
             images = Variable(images.to(device))
             labels = Variable(labels.to(device))
@@ -235,6 +245,7 @@ def train(num_epochs):
 
         print('For epoch %d loss: %.3f' % (epoch+1, running_loss / 1000))
         # zero the loss
+        loss_list.append(running_loss)
         running_loss = 0.0
         if(running_loss < best_loss):
             best_loss = running_loss
@@ -242,52 +253,63 @@ def train(num_epochs):
         count += 1
         accuracy = testAccuracy()
         print('For epoch', epoch+1,'the test accuracy over the whole test set is %d %%' % (accuracy))
-        if(accuracy > best_accuracy):
-            saveModel()
-            best_accuracy = accuracy
+        saveModel()
+    loss_list = np.array(loss_list)
+    return loss_list
 
-# Function to show the images
+
+
+# %% [markdown]
+# ## Predict in Test dataset
+
+# %%
 def imageshow(img):
-    img = img / 2 + 0.5     # unnormalize
+    img = img * 0.3081 + 0.1307     # unnormalize
     npimg = img.numpy()
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.show()
 
-
-# Function to test the model with a batch of images and show the labels predictions
 def testBatch():
+    batch_size = 20
     # get batch of images from the test DataLoader
     images, labels = next(iter(test_data))
 
     # show all images as one image grid
     imageshow(torchvision.utils.make_grid(images))
-   
-    # Show the real labels on the screen 
-    print('Real labels: ', ' '.join('%d' % labels[j] 
+
+    # Show the real labels on the screen
+    print('Real labels: ', ' '.join('%5s' % str(labels[j].numpy()+1)
                                for j in range(batch_size)))
-  
+
     # Let's see what if the model identifiers the  labels of those example
-    outputs = model(images)
-    
+    images = Variable(images.to(device))
+    labels = Variable(labels.to(device))
+    outputs = model(images).cuda()
+
     # We got the probability for every 10 labels. The highest (max) probability should be correct label
     _, predicted = torch.max(outputs, 1)
-    
+
     # Let's show the predicted labels on the screen to compare with the real ones
-    print('Predicted: ', ' '.join('%d' % predicted[j] 
+    print('Predicted: ', ' '.join('%5s' % str(predicted[j].cpu().numpy()+1)
                               for j in range(batch_size)))
 
 
 
+
 if __name__ == "__main__":
-###############################################################################
-# TODO: Complete the train and test process. You should split train and test  #
-# dataset by a ratio of 5:1. The accuracy on the test set should be above 95%.#
-###############################################################################
-# *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-    #Cuda = True
-    train(20)
-    print('Finished Training')
-    #testModelAccuracy()
+    Cuda = True
+    batch_size = 20
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    train_data, test_data = load_data()
+    model = ResNet_18().cuda()
+    loss_fn = nn.CrossEntropyLoss().to(device)
+    optimizer = Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
+    loss = train(30)
+    plt.plot(np.arange(30), loss/100)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Loss vs Epoch')
+    # Test with batch of images
+    testBatch()
 
 
-# *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
